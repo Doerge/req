@@ -295,12 +295,9 @@ defmodule Req.Steps do
           :crypto.strong_rand_bytes(16)
           |> Base.encode32(case: :lower, padding: false)
 
-        body =
-          encode_body_multipart_form(data, boundary)
-          |> Enum.to_list()
-          |> IO.iodata_to_binary()
+        body = encode_body_multipart_form(data, boundary)
 
-        %{request | body: body}
+        %{request | body: {:stream, body}}
         |> Req.Request.put_new_header(
           "content-type",
           ~s(multipart/form-data;boundary="#{boundary}")
@@ -647,7 +644,16 @@ defmodule Req.Steps do
   end
 
   defp run_plug(request) do
-    body = IO.iodata_to_binary(request.body || "")
+    body =
+      case request.body do
+        {:stream, stream} ->
+          stream
+          |> Enum.to_list()
+          |> IO.iodata_to_binary()
+
+        b ->
+          IO.iodata_to_binary(b || "")
+      end
 
     conn =
       Plug.Test.conn(request.method, request.url, body)

@@ -310,7 +310,7 @@ defmodule Req.Request do
           method: atom(),
           url: URI.t(),
           headers: [{binary(), binary()}],
-          body: iodata() | nil,
+          body: iodata() | {:stream, Enumerable.t()} | nil,
           options: map(),
           registered_options: MapSet.t(),
           halted: boolean(),
@@ -475,7 +475,22 @@ defmodule Req.Request do
   end
 
   def prepare(%Req.Request{request_steps: []} = request) do
-    request
+    case request.body do
+      # If the body is a stream, decode it to binary for easier inspection.
+      {:stream, stream} ->
+        binary_body =
+          stream
+          |> Enum.to_list()
+          |> IO.iodata_to_binary()
+
+        %Req.Request{
+          request
+          | body: binary_body
+        }
+
+      _ ->
+        request
+    end
   end
 
   @doc """
