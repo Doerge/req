@@ -316,7 +316,8 @@ defmodule Req.Steps do
         {key, val} when is_binary(val) ->
           [~s(Content-Disposition: form-data; name="#{key}"\n\n), val]
 
-        {key, stream} when is_struct(stream, Stream) ->
+        # Note this is kind of funky. We just hope it's a stream (or another iodata)
+        {key, stream} ->
           [
             ~s(Content-Disposition: form-data; name="#{key}"\n\n),
             stream |> Enum.to_list()

@@ -197,8 +197,23 @@ defmodule Req.StepsTest do
     assert req.body ==
              ~s(--#{boundary}\nContent-Disposition: form-data; name=\"a\"\n\nfoo\n--#{boundary}\nContent-Disposition: form-data; name=\"b\"\n\nbar\n--#{boundary}--)
 
+    # Ensure iodata values also work
+    data = [?f, ["oo"]]
+    req = Req.new(form_multi: [a: data]) |> Req.Request.prepare()
+
+    assert req.body
+           |> String.contains?(~s(\nContent-Disposition: form-data; name=\"a\"\n\nfoo\n--))
+
     # Ensure Stream values also work
     stream_val = Stream.cycle(["foo"]) |> Stream.take(1)
+    req = Req.new(form_multi: [a: stream_val]) |> Req.Request.prepare()
+
+    assert req.body
+           |> String.contains?(~s(\nContent-Disposition: form-data; name=\"a\"\n\nfoo\n--))
+
+    # Ensure File.Stream values work
+    File.write("./tmp.test", "foo")
+    stream_val = File.stream!("./tmp.test")
     req = Req.new(form_multi: [a: stream_val]) |> Req.Request.prepare()
 
     assert req.body
