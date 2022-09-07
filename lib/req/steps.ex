@@ -319,7 +319,7 @@ defmodule Req.Steps do
         {key, stream} when is_struct(stream, Stream) ->
           [
             ~s(Content-Disposition: form-data; name="#{key}"\n\n),
-            stream |> Enum.to_list() |> IO.iodata_to_binary()
+            stream |> Enum.to_list()
           ]
       end)
       |> Stream.chunk_every(2)
