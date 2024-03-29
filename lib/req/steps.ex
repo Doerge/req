@@ -26,6 +26,7 @@ defmodule Req.Steps do
       :path_params,
       :auth,
       :form,
+      :form_multi,
       :json,
       :compress_body,
       :checksum,
@@ -364,6 +365,8 @@ defmodule Req.Steps do
 
     * `:form` - if set, encodes the request body as form data (using `URI.encode_query/1`).
 
+    * `:form_multi` - if set, encodes the request body as multipart form data.
+
     * `:json` - if set, encodes the request body as JSON (using `Jason.encode_to_iodata!/1`), sets
       the `accept` header to `application/json`, and the `content-type` header to `application/json`.
 
@@ -372,8 +375,11 @@ defmodule Req.Steps do
       iex> Req.post!("https://httpbin.org/anything", form: [x: 1]).body["form"]
       %{"x" => "1"}
 
-      iex> Req.post!("https://httpbin.org/post", json: %{x: 2}).body["json"]
-      %{"x" => 2}
+      iex> Req.post!("https://httpbin.org/anything", form_multi: [x: 2]).body["form"]
+      %{"x" => "2"}
+
+      iex> Req.post!("https://httpbin.org/post", json: %{x: 3}).body["json"]
+      %{"x" => 3}
 
   """
   @doc step: :request
@@ -388,9 +394,44 @@ defmodule Req.Steps do
         |> Req.Request.put_new_header("content-type", "application/json")
         |> Req.Request.put_new_header("accept", "application/json")
 
+      data = request.options[:form_multi] ->
+        # Generate a random boundary
+        boundary =
+          :crypto.strong_rand_bytes(16)
+          |> Base.encode32(case: :lower, padding: false)
+
+        body = encode_body_multipart_form(data, boundary)
+
+        %{request | body: body}
+        |> Req.Request.put_new_header(
+          "content-type",
+          ~s(multipart/form-data;boundary="#{boundary}")
+        )
+
       true ->
         request
     end
+  end
+
+  defp encode_body_multipart_form(data, boundary) do
+    [
+      ["--#{boundary}\n"],
+      data
+      |> Stream.flat_map(fn
+        {key, val} when is_binary(val) ->
+          [~s(Content-Disposition: form-data; name="#{key}"\n\n), val]
+
+        {key, stream} when is_struct(stream, Stream) ->
+          [
+            ~s(Content-Disposition: form-data; name="#{key}"\n\n),
+            stream |> Enum.to_list() |> IO.iodata_to_binary()
+          ]
+      end)
+      |> Stream.chunk_every(2)
+      |> Stream.intersperse("\n--#{boundary}\n"),
+      ["\n--#{boundary}--"]
+    ]
+    |> Stream.concat()
   end
 
   @doc """
@@ -1358,12 +1399,11 @@ defmodule Req.Steps do
           nil ->
             hash = hash_init(type)
 
-            into =
-              fn {:data, chunk}, {req, resp} ->
-                req = update_in(req.private.req_checksum_hash, &:crypto.hash_update(&1, chunk))
-                resp = update_in(resp.body, &(&1 <> chunk))
-                {:cont, {req, resp}}
-              end
+            into = fn {:data, chunk}, {req, resp} ->
+              req = update_in(req.private.req_checksum_hash, &:crypto.hash_update(&1, chunk))
+              resp = update_in(resp.body, &(&1 <> chunk))
+              {:cont, {req, resp}}
+            end
 
             request
             |> Req.Request.put_private(:req_checksum_type, type)
@@ -1374,11 +1414,10 @@ defmodule Req.Steps do
           fun when is_function(fun, 2) ->
             hash = hash_init(type)
 
-            into =
-              fn {:data, chunk}, {req, resp} ->
-                req = update_in(req.private.req_checksum_hash, &:crypto.hash_update(&1, chunk))
-                fun.({:data, chunk}, {req, resp})
-              end
+            into = fn {:data, chunk}, {req, resp} ->
+              req = update_in(req.private.req_checksum_hash, &:crypto.hash_update(&1, chunk))
+              fun.({:data, chunk}, {req, resp})
+            end
 
             request
             |> Req.Request.put_private(:req_checksum_type, type)

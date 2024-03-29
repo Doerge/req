@@ -243,6 +243,35 @@ defmodule Req.StepsTest do
       req = Req.new(form: %{a: 1}) |> Req.Request.prepare()
       assert req.body == "a=1"
     end
+
+    test "encode_body/1: form_multi" do
+      req = Req.new(form_multi: [a: "foo", b: "bar"]) |> Req.Request.prepare()
+
+      # Get the randomly generated boundary from the header
+      re = ~r|multipart/form-data;boundary="([[:alnum:]]+)"|
+      [content_type] = Req.Request.get_header(req, "content-type")
+      [_, boundary] = Regex.run(re, content_type)
+
+      body =
+        req.body
+        |> Enum.to_list()
+        |> IO.iodata_to_binary()
+
+      assert body ==
+               ~s(--#{boundary}\nContent-Disposition: form-data; name=\"a\"\n\nfoo\n--#{boundary}\nContent-Disposition: form-data; name=\"b\"\n\nbar\n--#{boundary}--)
+
+      # Ensure Stream values also work
+      stream_val = Stream.cycle(["foo"]) |> Stream.take(1)
+      req = Req.new(form_multi: [a: stream_val]) |> Req.Request.prepare()
+
+      body =
+        req.body
+        |> Enum.to_list()
+        |> IO.iodata_to_binary()
+
+      assert body
+             |> String.contains?(~s(\nContent-Disposition: form-data; name=\"a\"\n\nfoo\n--))
+    end
   end
 
   test "put_params" do
